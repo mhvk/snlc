@@ -18,7 +18,7 @@ class NuclearData:
     pco : u.Quantity  # 56Co average positron energy (annih. rad. assumed to escape)
     name : str = ''
 
-    m56ni = 55.942132 * const.u
+    m56ni = 55.942132 * const.u  # Isotopic masses from Wikipedia
     m56co = 55.9398393 * const.u
 
     @lazyproperty
@@ -82,10 +82,6 @@ def deposition(tau):
 
     From Colgate et al., 1980, ApJ 237, L81
     """
-    # Check with Table 1
-    # np.isclose(deposition(2.**(np.arange(4, -4, -1))),
-    #            [0.965, 0.930, 0.857, 0.725,
-    #             0.517, 0.301, 0.158, 0.080], rtol=0.04)
     g = tau / (1.6+tau)
     return g * (1 + 2*g*(1-g)*(1-0.75*g))
 

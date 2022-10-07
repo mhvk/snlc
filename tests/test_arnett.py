@@ -2,7 +2,7 @@ import numpy as np
 import astropy.units as u
 import pytest
 
-from ..arnett import Arnett
+from ..arnett import Arnett, deposition
 
 
 class TestArnett:
@@ -14,3 +14,11 @@ class TestArnett:
         sn = Arnett()
         sol = sn(recombination=recombination)
         assert u.isclose(sol['l'].max(), max_lum, rtol=0.03)
+
+
+
+def test_deposition():
+    # Check with Table 1 of Colgate et al., 1980, ApJ 237, L81.
+    assert np.allclose(deposition(2.**(np.arange(4, -4, -1))),
+                       [0.965, 0.930, 0.857, 0.725,
+                        0.517, 0.301, 0.158, 0.080], rtol=0.04)
