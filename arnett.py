@@ -122,13 +122,13 @@ class Arnett:
         # --> evolve it!  Note that solve_ivp cannot handle Quantities, so we
         # use arrays in whatever unit the times are in.
         # y0 containts the initial values for phi, xi, fni, and fco.
+        start = dict(fni=1, fco=0, phi=1)
         if recombination is None:
             derivatives = self.heating
-            start = dict(phi=1, fni=1, fco=0)
 
         else:
             derivatives = getattr(self, recombination)
-            start = dict(phi=1, xi=self.xi0.value, fni=1, fco=0)
+            start['xi'] = self.xi0.value
 
         sol = solve_ivp(derivatives,
                         t_span=times[[0, -1]].value,
@@ -162,7 +162,7 @@ class Arnett:
 
     def heating(self, t, par):
         t = t << self._time_unit
-        phi, fni, fco = par
+        fni, fco, phi = par
         fni_dot = -fni / self.tni  # 56Ni decay rate.
         fco_dot = (fni / self.tni
                    - fco / self.tco)  # 56Co creation and decay.
@@ -170,12 +170,12 @@ class Arnett:
         # TODO: include gamma-ray diffusion loss.
         fr = (self.r0 + self.vsc * t) / self.r0  # R/R0 (sigma in AF89).
         phi_dot = (heating/self.th0 - phi/self.td0) * fr
-        return u.Quantity([phi_dot, fni_dot, fco_dot],
+        return u.Quantity([fni_dot, fco_dot, phi_dot],
                           unit=1/self._time_unit).value
 
     def fast(self, t, par):
         t = t << self._time_unit
-        phi, xi, fni, fco = par
+        fni, fco, phi, xi = par
         fni_dot = -fni / self.tni  # 56Ni decay rate.
         fco_dot = (fni / self.tni
                    - fco / self.tco)  # 56Co creation and decay.
@@ -213,7 +213,7 @@ class Arnett:
                   f"xi_dot={xi_dot.to(1/u.day):10.4g}, "
                   + fmt.format('lmin2', lmin2.to_value(u.erg/u.s)))
 
-        return u.Quantity([phi_dot, xi_dot, fni_dot, fco_dot],
+        return u.Quantity([fni_dot, fco_dot, phi_dot, xi_dot],
                           unit=1/self._time_unit).value
 
     def slow(self, t, par):
@@ -222,7 +222,7 @@ class Arnett:
         # solving ln(phi), ln(xi) does not matter.
         t = t << self._time_unit
         # TODO: factor out; is the same as for fast().
-        phi, xi, fni, fco = par
+        fni, fco, phi, xi = par
         fni_dot = -fni / self.tni  # 56Ni decay rate
         fco_dot = (fni / self.tni
                    - fco / self.tco)  # 56Co creation and decay [/s]
@@ -289,7 +289,7 @@ class Arnett:
                   f"xi_dot={xi_dot.to(1/u.day):10.4g}, "
                   + fmt.format('lmin2', lmin2.to_value(u.erg/u.s)))
 
-        return u.Quantity([phi_dot, xi_dot, fni_dot, fco_dot],
+        return u.Quantity([fni_dot, fco_dot, phi_dot, xi_dot],
                           unit=1/self._time_unit).value
 
 
