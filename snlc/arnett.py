@@ -20,6 +20,7 @@ class NuclearData:
 
     m56ni = 55.942132 * const.u  # Isotopic masses from Wikipedia
     m56co = 55.9398393 * const.u
+    mfp = 35.5 * u.g / u.cm**2  # Colgate et al. 1980, ApJ 237, L81
 
     @lazyproperty
     def tau_ni(self):
@@ -107,6 +108,12 @@ class Arnett:
         Recombination temperature.
     qion: |Quantity|
         Recombination energy per unit mass.
+    vsc : |Quantity|, optional
+        Scale velocity.  If not given, calculated from the supernova energy
+        using ``sqrt(esn/mej*5/3)`` (A96), but in other papers it is estimated
+        differently.
+    nuclear : NuclearData, optional
+        Set of nuclear data to use.  By default, those of A96.
     """
 
     def __init__(self,
@@ -118,6 +125,7 @@ class Arnett:
                  mni=0.075*u.Msun,
                  tion=4500*u.K,
                  qion=0.7*13.6*u.eV/const.m_p,
+                 vsc=None,
                  nuclear=nuclear_a96,
                  ):
         self.mej = mej
@@ -129,7 +137,8 @@ class Arnett:
         self.qion = qion
         self.nuclear = nuclear
         # expansion velocity of outermost layer (acceleration already applied),
-        self.vsc = ((2*esn/2/mej*5./3.)**0.5).to(u.km/u.s)  # Scale velocity (eq. D33)
+        self.vsc = (vsc if vsc is not None
+                    else ((2*esn/2/mej*5./3.)**0.5)).to(u.km/u.s)  # Scale velocity (eq. D33)
         self.te0 = r0/self.vsc
         # (use Etot=Esn/2 by comparison with Rph as a fu. of time in Fig.13.11)
         self.eth0 = esn/2  # initial thermal energy [erg] (half SN energy, rest kinetic)
@@ -137,14 +146,19 @@ class Arnett:
         self.td0 = (kappa*mej/self.beta/const.c/r0).to(u.day)  # initial diffusion time scale.
         # Calculate initial location of photosphere (not really important, but
         # for some conditions, it is better that xi<1).
-        self.rho0 = (mej/(4*np.pi/3.*r0**3)).to(u.g/u.cm**3)  # mean density.
+        volume = 4*np.pi/3.*r0**3
+        self.rho0 = (mej/volume).to(u.g/u.cm**3)  # mean density.
         self.xi0 = 1 - 1/(kappa*self.rho0)/r0  # initial dimensionless location of photosphere.
+        # For reference
+        self.tau0 = self.rho0 * r0 * kappa
+        self.T0 = ((self.eth0 / volume) / (4 * const.sigma_sb / const.c)) ** 0.25
         # --- radioactive heating
         self.th0 = (self.eth0 / (self.nuclear.egni*mni)
                     if mni > 0 else np.inf << u.s)  # Heating timescale (=1/p1 of AF89).
         # --> TODO: gamma-ray loss, but needs the following.
         self.xni = 0.65  # fractional radius where Ni is located (for escape).
-        self.kappagamma = 0.07*u.cm**2/u.g  # opacity to gamma rays [cm**2/g].
+        self.tau_gamma0 = self.rho0 * r0 / nuclear.mfp
+        # kappagamma = 0.07*u.cm**2/u.g  # opacity to gamma rays [cm**2/g].
         # Recombination
         self.ti0 = (self.eth0 / (4*np.pi*r0**2 * const.sigma_sb*2*tion**4)
                     ).to(u.day)  # radiation time at Teff=2**(1/4)Tion
@@ -221,8 +235,12 @@ class Arnett:
         fco_dot = (fni / self.nuclear.tau_ni
                    - fco / self.nuclear.tau_co)  # 56Co creation and decay.
         # εM/E, normalised to initial heating (zeta(t) of AF89).
-        heating = fni + (self.nuclear.egco + self.nuclear.epco) / self.nuclear.egni * fco
-        # TODO: include gamma-ray diffusion loss.
+        tau_gamma = self.tau_gamma0 / fr**2
+        depfrac = deposition(tau_gamma)
+        heating = (fni * depfrac
+                   + ((self.nuclear.egco * depfrac + self.nuclear.epco)
+                      / self.nuclear.egni * fco))
+
         # Associated ϕ-dot, corrected for adiabatic expansion.
         phi_dot = heating / self.th0 * fr
         return fni_dot, fco_dot, phi_dot
