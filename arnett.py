@@ -1,8 +1,80 @@
+from dataclasses import dataclass
+
 import numpy as np
 import astropy.units as u
 import astropy.constants as const
+from astropy.utils.decorators import lazyproperty
 from astropy.table import QTable
 from scipy.integrate import solve_ivp
+
+
+# Nuclear physics data
+@dataclass
+class NuclearData:
+    tni : u.Quantity  # 56Ni half life
+    gni : u.Quantity  # 56Ni average gamma ray energy
+    tco : u.Quantity  # 56Co half life
+    gco : u.Quantity  # 56Co average gamma ray energy
+    pco : u.Quantity  # 56Co average positron energy (annih. rad. assumed to escape)
+    name : str = ''
+
+    m56ni = 55.942132 * const.u
+    m56co = 55.9398393 * const.u
+
+    @lazyproperty
+    def tau_ni(self):
+        return self.tni / np.log(2.)
+
+    @lazyproperty
+    def tau_co(self):
+        return self.tco / np.log(2.)
+
+    @lazyproperty
+    def egni(self):
+        """56Ni gamma-ray energy generation rate per unit mass."""
+        return (self.gni/self.m56ni/self.tau_ni).to(u.erg/u.g/u.s)
+
+    @lazyproperty
+    def egco(self):
+        """56Co gamma-ray energy generation rate per unit mass."""
+
+        return (self.gco/self.m56co/self.tau_co).to(u.erg/u.g/u.s)
+
+    @lazyproperty
+    def epco(self):
+        """56Co positron energy generation rate per unit mass."""
+        return (self.pco/(56*const.m_p)/self.tau_co).to(u.erg/u.g/u.s)
+
+
+nuclear_afm17 = NuclearData(
+    name='AFM17',
+    tni=6.075*u.day,
+    gni=1.750*u.MeV,
+    tco=77.236*u.day,
+    gco=3.7610*u.MeV,
+    pco=0.120*u.MeV
+)
+"""Nuclear data listed in Arnett, Fryer & Matheson 2017"""
+
+
+nuclear_a96 = NuclearData(
+    name='A96',
+    tni=6.10*u.day,
+    gni=1.72*u.MeV,
+    tco=77.12*u.day,
+    # Cobalt energy input, gammas and positrons seperately (Arnett, Fig. 13.4)
+    gco=(0.279*4.10
+         + 0.167*3.856
+         + 0.219*3.445
+         + (0.078+0.009)*3.123
+         + (0.024+0.181)*2.085
+         ) * u.MeV,
+    pco=(0.5*(0.009*(4.556-3.123)
+              + 0.181*(4.556-2.085))
+         + (0.009+0.181)*0.512*2
+         ) * u.MeV
+)
+"""Nuclear data listed in Arnett 1996 (book)"""
 
 
 def deposition(tau):
@@ -50,6 +122,7 @@ class Arnett:
                  mni=0.075*u.Msun,
                  tion=4500*u.K,
                  qion=0.7*13.6*u.eV/const.m_p,
+                 nuclear=nuclear_a96,
                  ):
         self.mej = mej
         self.esn = esn
@@ -58,6 +131,7 @@ class Arnett:
         self.mni = mni
         self.tion = tion
         self.qion = qion
+        self.nuclear = nuclear
         # expansion velocity of outermost layer (acceleration already applied),
         self.vsc = ((2*esn/2/mej*5./3.)**0.5).to(u.km/u.s)  # Scale velocity (eq. D33)
         self.te0 = r0/self.vsc
@@ -70,23 +144,7 @@ class Arnett:
         self.rho0 = (mej/(4*np.pi/3.*r0**3)).to(u.g/u.cm**3)  # mean density.
         self.xi0 = 1 - 1/(kappa*self.rho0)/r0  # initial dimensionless location of photosphere.
         # --- radioactive heating
-        self.tni = 6.10*u.day/np.log(2.)  # 56Ni decay time.
-        gni = 1.72*u.MeV
-        self.eni = (gni/(56*const.m_p)/self.tni).to(u.erg/u.g/u.s)  # 56Ni energy per unit mass.
-        self.tco = 77.12*u.day/np.log(2.); # Cobalt 56 decay time.
-        # Cobalt energy input, gammas and positrons seperately (Arnett, Fig. 13.4)
-        gco = (0.279*4.10
-               + 0.167*3.856
-               + 0.219*3.445
-               + (0.078+0.009)*3.123
-               + (0.024+0.181)*2.085
-               ) * u.MeV
-        pco = (0.5*(0.009*(4.556-3.123)
-                    + 0.181*(4.556-2.085))
-               + (0.009+0.181)*0.512*2
-               ) * u.MeV
-        self.eco = ((gco+pco)/(56*const.m_p)/self.tco).to(u.erg/u.g/u.s)  # 56Co energy input.
-        self.th0 = (self.eth0 / (self.eni*mni)
+        self.th0 = (self.eth0 / (self.nuclear.egni*mni)
                     if mni > 0 else np.inf << u.s)  # Heating timescale (=1/p1 of AF89).
         # --> TODO: gamma-ray loss, but needs the following.
         self.xni = 0.65  # fractional radius where Ni is located (for escape).
@@ -163,11 +221,11 @@ class Arnett:
 
     def heating(self, t, fr, fni, fco):
         """Calculate Ni and Co decay and associated heating."""
-        fni_dot = -fni / self.tni  # 56Ni decay rate.
-        fco_dot = (fni / self.tni
-                   - fco / self.tco)  # 56Co creation and decay.
+        fni_dot = -fni / self.nuclear.tau_ni  # 56Ni decay rate.
+        fco_dot = (fni / self.nuclear.tau_ni
+                   - fco / self.nuclear.tau_co)  # 56Co creation and decay.
         # εM/E, normalised to initial heating (zeta(t) of AF89).
-        heating = fni + self.eco / self.eni * fco
+        heating = fni + (self.nuclear.egco + self.nuclear.epco) / self.nuclear.egni * fco
         # TODO: include gamma-ray diffusion loss.
         # Associated ϕ-dot, corrected for adiabatic expansion.
         phi_dot = heating / self.th0 * fr
@@ -268,7 +326,7 @@ class Arnett:
             # so we need heating*eth0/th0=xi**2*fr**2*eth0/ti0
             # hence, dln h = 2 dln xi + 2d ln fr -> dln xi = 0.5* dln h -vsc/r0/fr
             heating = phi_dot * self.th0 / fr
-            xi_dot = xi*(0.5*(fni_dot+self.eco/self.eni*fco_dot)/heating
+            xi_dot = xi*(0.5*(fni_dot+(self.nuclear.egco+self.nuclear.epco)/self.nuclear.egni*fco_dot)/heating
                          - self.vsc / (self.r0+self.vsc*t))
             # Part below unclear whether this is correct.
             # this implies Ldiff=Lmin-Ladv-Lrec=heating-Ladv-Lrec
