@@ -16,11 +16,11 @@ class NuclearData:
     tco : u.Quantity  # 56Co half life
     gco : u.Quantity  # 56Co average gamma ray energy
     pco : u.Quantity  # 56Co average positron energy (annih. rad. assumed to escape)
+    kappa_g : u.Quantity = (35.5 * u.g / u.cm**2)**-1  # Colgate et al. 1980, ApJ 237, L81
     name : str = ''
 
     m56ni = 55.942132 * const.u  # Isotopic masses from Wikipedia
     m56co = 55.9398393 * const.u
-    mfp = 35.5 * u.g / u.cm**2  # Colgate et al. 1980, ApJ 237, L81
 
     @lazyproperty
     def tau_ni(self):
@@ -52,8 +52,11 @@ nuclear_afm17 = NuclearData(
     tni=6.075*u.day,
     gni=1.750*u.MeV,
     tco=77.236*u.day,
-    gco=3.7610*u.MeV,
-    pco=0.120*u.MeV
+    gco=3.610*u.MeV,
+    pco=0.120*u.MeV,
+    kappa_g=0.00716*u.cm**2/u.g,  # Empirical override, to get D(tau_g(max)) right.
+    # kappa_g=0.03*u.cm**2/u.g,  # Empirical override, to get tau_g(max) right.
+    # (It is close but not quite right with mfp=35.5g/cm^2 from Colgate et al.)
 )
 """Nuclear data listed in Arnett, Fryer & Matheson 2017"""
 
@@ -157,7 +160,7 @@ class Arnett:
                     if mni > 0 else np.inf << u.s)  # Heating timescale (=1/p1 of AF89).
         # --> TODO: gamma-ray loss, but needs the following.
         self.xni = 0.65  # fractional radius where Ni is located (for escape).
-        self.tau_gamma0 = self.rho0 * r0 / nuclear.mfp
+        self.tau_gamma0 = r0 * nuclear.kappa_g * self.rho0
         # kappagamma = 0.07*u.cm**2/u.g  # opacity to gamma rays [cm**2/g].
         # Recombination
         self.ti0 = (self.eth0 / (4*np.pi*r0**2 * const.sigma_sb*2*tion**4)
