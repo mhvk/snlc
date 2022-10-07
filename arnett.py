@@ -60,6 +60,7 @@ class Arnett:
         self.qion = qion
         # expansion velocity of outermost layer (acceleration already applied),
         self.vsc = ((2*esn/2/mej*5./3.)**0.5).to(u.km/u.s)  # Scale velocity (eq. D33)
+        self.te0 = r0/self.vsc
         # (use Etot=Esn/2 by comparison with Rph as a fu. of time in Fig.13.11)
         self.eth0 = esn/2  # initial thermal energy [erg] (half SN energy, rest kinetic)
         self.beta = 13.8  # diffusion constant, appropriate for constant density.
@@ -122,7 +123,7 @@ class Arnett:
         # --> evolve it!  Note that solve_ivp cannot handle Quantities, so we
         # use arrays in whatever unit the times are in.
         # y0 containts the initial values for phi, xi, fni, and fco.
-        start = dict(fni=1, fco=0, phi=1)
+        start = dict(fr=1, fni=1, fco=0, phi=1)
         if recombination is None:
             derivatives = self.base
 
@@ -141,7 +142,7 @@ class Arnett:
         xi = result['xi'] = (1 if recombination is None
                              else np.maximum(result['xi'], 0.))
         # Photospheric radius.
-        r = result['r'] = (self.r0 + self.vsc * times) * xi
+        r = result['r'] = result['fr'] * self.r0 * xi
         # TODO: should be a method that can be called? Can it be generalized?
         ldiff = (phi * self.eth0 / self.td0).to(u.erg/u.s)
         if recombination is not None:
@@ -160,7 +161,7 @@ class Arnett:
         result['teff'] = ((result['l'] / (4*np.pi*r**2) / const.sigma_sb)**(1/4)).to(u.K)
         return result
 
-    def heating(self, t, fni, fco):
+    def heating(self, t, fr, fni, fco):
         """Calculate Ni and Co decay and associated heating."""
         fni_dot = -fni / self.tni  # 56Ni decay rate.
         fco_dot = (fni / self.tni
@@ -169,31 +170,28 @@ class Arnett:
         heating = fni + self.eco / self.eni * fco
         # TODO: include gamma-ray diffusion loss.
         # Associated ϕ-dot, corrected for adiabatic expansion.
-        fr = (self.r0 + self.vsc * t) / self.r0  # R/R0 (sigma in AF89).
         phi_dot = heating / self.th0 * fr
         return fni_dot, fco_dot, phi_dot
 
     def base(self, t, par):
         t = t << self._time_unit
-        fni, fco, phi = par
+        fr, fni, fco, phi = par
         # Calculate composition and energy changes due to radioactive decay.
-        fni_dot, fco_dot, phi_dot = self.heating(t, fni, fco)
+        fni_dot, fco_dot, phi_dot = self.heating(t, fr, fni, fco)
         # Subtract cooling by diffusion.
-        fr = (self.r0 + self.vsc * t) / self.r0  # R/R0 (sigma in AF89).
         phi_dot -= phi/self.td0 * fr
-        return u.Quantity([fni_dot, fco_dot, phi_dot],
+        return u.Quantity([1/self.te0, fni_dot, fco_dot, phi_dot],
                           unit=1/self._time_unit).value
 
     def fast(self, t, par):
         t = t << self._time_unit
-        fni, fco, phi, xi = par
-        fr = (self.r0 + self.vsc * t) / self.r0  # R/R0 (sigma in AF89).
+        fr, fni, fco, phi, xi = par
         xi2dpsidxi = -xi * np.cos(np.pi*xi) + np.sin(np.pi*xi) / np.pi
         volkept = xi2dpsidxi
         pi2by3psi = np.pi**2 / 3 * np.sin(np.pi*xi)/(np.pi*xi)
         # Calculate dphi/dt and dxi/dt.
         # Effectively, the first term applies all heating in the centre.
-        fni_dot, fco_dot, phi_dot = self.heating(t, fni, fco)
+        fni_dot, fco_dot, phi_dot = self.heating(t, fr, fni, fco)
         phi_dot /= volkept
         # Subtract cooling.
         phi_dot -= phi / self.td0 * fr
@@ -224,7 +222,7 @@ class Arnett:
                   f"xi_dot={xi_dot.to(1/u.day):10.4g}, "
                   + fmt.format('lmin2', lmin2.to_value(u.erg/u.s)))
 
-        return u.Quantity([fni_dot, fco_dot, phi_dot, xi_dot],
+        return u.Quantity([1/self.te0, fni_dot, fco_dot, phi_dot, xi_dot],
                           unit=1/self._time_unit).value
 
     def slow(self, t, par):
@@ -233,10 +231,8 @@ class Arnett:
         # solving ln(phi), ln(xi) does not matter.
         t = t << self._time_unit
         # TODO: factor out; is the same as for fast().
-        fni, fco, phi, xi = par
-        fni_dot, fco_dot, phi_dot = self.heating(t, fni, fco)
-        # TODO: include gamma-ray diffusion loss.
-        fr = (self.r0 + self.vsc * t) / self.r0  # R/R0 (sigma in AF89)
+        fr, fni, fco, phi, xi = par
+        fni_dot, fco_dot, phi_dot = self.heating(t, fr, fni, fco)
         # AF89: phidot = sigma/xi**3[p1*zeta -p2*phi  -2(phi/sigma)xi**2 xidot]
         #              = fr/xi**3 [ zeta/th0 -phi/td0 -2(phi/fr)xi**2 xidot]
         # Effectively, this applies all heating in the centre
@@ -303,7 +299,7 @@ class Arnett:
                   f"xi_dot={xi_dot.to(1/u.day):10.4g}, "
                   + fmt.format('lmin2', lmin2.to_value(u.erg/u.s)))
 
-        return u.Quantity([fni_dot, fco_dot, phi_dot, xi_dot],
+        return u.Quantity([1/self.te0, fni_dot, fco_dot, phi_dot, xi_dot],
                           unit=1/self._time_unit).value
 
 
