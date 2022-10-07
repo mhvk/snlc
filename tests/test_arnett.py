@@ -2,7 +2,7 @@ import numpy as np
 import astropy.units as u
 import pytest
 
-from ..arnett import Arnett, deposition
+from ..arnett import Arnett, deposition, nuclear_a96
 
 
 class TestArnett:
@@ -11,7 +11,7 @@ class TestArnett:
         ('fast', 9.41e41*u.erg/u.s),
         ('slow', 12.41e41*u.erg/u.s)])
     def test_it_runs(self, recombination, max_lum):
-        sn = Arnett()
+        sn = Arnett(nuclear=nuclear_a96)
         sol = sn(recombination=recombination)
         assert u.isclose(sol['l'].max(), max_lum, rtol=0.03)
 
