@@ -24,6 +24,7 @@ SN2011fe = dict(  # From Arnett, Fryer & Matheson, 2017, ApJ 846:33
     kappa=0.09*u.cm**2/u.g,
     esn=1.2e51*u.erg,
     vsc=9.28e8*u.cm/u.s,  # Override default calculation from esn.
+    nuclear=nuclear_afm17,
     )
 
 
@@ -69,7 +70,7 @@ def sn2011fe():
     base = Arnett(**SN2011fe)
     default = base(t)
     plt.plot(t, default['l'].to(u.Lsun), label='AFM17')
-    return base
+    return base, default
 
 
 if __name__ == '__main__':
