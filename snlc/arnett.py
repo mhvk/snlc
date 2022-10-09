@@ -195,11 +195,11 @@ class Arnett:
 
         Parameters
         ----------
+        times: |Quantity|
+            Times at which to evaluate the lightcurve.
         recombination: {'fast', 'slow'}, None
             Whether recombination is treated, and if so, whether it is
             fast or slow relative to diffusion.
-        times: |Quantity|
-            Times at which to evaluate the lightcurve.
 
         Returns
         -------
