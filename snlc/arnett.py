@@ -11,13 +11,19 @@ from scipy.integrate import solve_ivp
 # Nuclear physics data
 @dataclass
 class NuclearData:
-    tni : u.Quantity  # 56Ni half life
-    gni : u.Quantity  # 56Ni average gamma ray energy
-    tco : u.Quantity  # 56Co half life
-    gco : u.Quantity  # 56Co average gamma ray energy
-    pco : u.Quantity  # 56Co average positron energy (annih. rad. assumed to escape)
-    kappa_g : u.Quantity = (35.5 * u.g / u.cm**2)**-1  # Colgate et al. 1980, ApJ 237, L81
-    name : str = ''
+    tni: u.Quantity
+    """56Ni half life."""
+    gni: u.Quantity
+    """56Ni average gamma ray energy."""
+    tco: u.Quantity
+    """56Co half life."""
+    gco: u.Quantity
+    """56Co average gamma ray energy."""
+    pco: u.Quantity
+    """56Co average positron energy (annih. rad. assumed to escape)."""
+    kappa_g: u.Quantity = (35.5 * u.g / u.cm**2)**-1
+    """Absorption opacity to gamma rays (Colgate et al. 1980, ApJ 237, L81)."""
+    name: str = ''
 
     m56ni = 55.942132 * const.u  # Isotopic masses from Wikipedia
     m56co = 55.9398393 * const.u
@@ -54,9 +60,11 @@ nuclear_afm17 = NuclearData(
     tco=77.236*u.day,
     gco=3.610*u.MeV,
     pco=0.120*u.MeV,
-    kappa_g=0.00716*u.cm**2/u.g,  # Empirical override, to get D(tau_g(max)) right.
-    # kappa_g=0.03*u.cm**2/u.g,  # Empirical override, to get tau_g(max) right.
-    # (It is close but not quite right with mfp=35.5g/cm^2 from Colgate et al.)
+    kappa_g=0.00716*u.cm**2/u.g,
+    # Empirical override, to get D(tau_g(max)) right.
+    # Alternative, to get tau_g(max) right.
+    # kappa_g=0.03*u.cm**2/u.g,
+    # (Close but not quite right with mfp=35.5g/cm^2 from Colgate et al.)
 )
 """Nuclear data listed in Arnett, Fryer & Matheson 2017"""
 
@@ -115,6 +123,8 @@ class Arnett:
         Scale velocity.  If not given, calculated from the supernova energy
         using ``sqrt(esn/mej*5/3)`` (A96), but in other papers it is estimated
         differently.
+    beta : float
+        Diffusion constant, appropriate for constant density.
     nuclear : NuclearData, optional
         Set of nuclear data to use.  By default, those of A96.
     """
@@ -129,6 +139,7 @@ class Arnett:
                  tion=4500*u.K,
                  qion=0.7*13.6*u.eV/const.m_p,
                  vsc=None,
+                 beta=13.8,
                  nuclear=nuclear_a96,
                  ):
         self.mej = mej
@@ -138,34 +149,43 @@ class Arnett:
         self.mni = mni
         self.tion = tion
         self.qion = qion
+        self.beta = beta
         self.nuclear = nuclear
-        # expansion velocity of outermost layer (acceleration already applied),
+        # Expansion velocity of outermost layer (acceleration already applied),
+        # or the scale velocity (eq. D33).
         self.vsc = (vsc if vsc is not None
-                    else ((2*esn/2/mej*5./3.)**0.5)).to(u.km/u.s)  # Scale velocity (eq. D33)
+                    else ((2*esn/2/mej*5./3.)**0.5)).to(u.km/u.s)
         self.te0 = r0/self.vsc
+        # Initial thermal energy [erg] (half SN energy, rest kinetic)
         # (use Etot=Esn/2 by comparison with Rph as a fu. of time in Fig.13.11)
-        self.eth0 = esn/2  # initial thermal energy [erg] (half SN energy, rest kinetic)
-        self.beta = 13.8  # diffusion constant, appropriate for constant density.
-        self.td0 = (kappa*mej/self.beta/const.c/r0).to(u.day)  # initial diffusion time scale.
+        self.eth0 = esn/2
+        # Initial diffusion time scale.
+        self.td0 = (kappa*mej/self.beta/const.c/r0).to(u.day)
+        # Mean density.
+        volume = 4*np.pi/3.*r0**3
+        self.rho0 = (mej/volume).to(u.g/u.cm**3)
+        # Initial dimensionless location of photosphere.
         # Calculate initial location of photosphere (not really important, but
         # for some conditions, it is better that xi<1).
-        volume = 4*np.pi/3.*r0**3
-        self.rho0 = (mej/volume).to(u.g/u.cm**3)  # mean density.
-        self.xi0 = 1 - 1/(kappa*self.rho0)/r0  # initial dimensionless location of photosphere.
-        # For reference
+        self.xi0 = 1 - 1/(kappa*self.rho0)/r0
+        # For reference.
         self.tau0 = self.rho0 * r0 * kappa
-        self.T0 = ((self.eth0 / volume) / (4 * const.sigma_sb / const.c)) ** 0.25
+        self.T0 = ((self.eth0 / volume)
+                   / (4 * const.sigma_sb / const.c)) ** 0.25
         # --- radioactive heating
+        # Heating timescale (=1/p1 of AF89).
         self.th0 = (self.eth0 / (self.nuclear.egni*mni)
-                    if mni > 0 else np.inf << u.s)  # Heating timescale (=1/p1 of AF89).
-        # --> TODO: gamma-ray loss, but needs the following.
-        self.xni = 0.65  # fractional radius where Ni is located (for escape).
+                    if mni > 0 else np.inf << u.s)
+        # --> TODO: how is this actually used???
+        # Fractional radius where Ni is located (for escape).
+        self.xni = 0.65
         self.tau_gamma0 = r0 * nuclear.kappa_g * self.rho0
-        # kappagamma = 0.07*u.cm**2/u.g  # opacity to gamma rays [cm**2/g].
-        # Recombination
+        # -- Recombination
+        # Radiation time at Teff=2**(1/4)Tion.
         self.ti0 = (self.eth0 / (4*np.pi*r0**2 * const.sigma_sb*2*tion**4)
-                    ).to(u.day)  # radiation time at Teff=2**(1/4)Tion
-        self.feion0 = (mej*qion / self.eth0).to(u.one)  # Ratio of recombination to thermal energy.
+                    ).to(u.day)
+        # Ratio of recombination to thermal energy.
+        self.feion0 = (mej*qion / self.eth0).to(u.one)
 
     def __call__(self,
                  times=np.arange(0, 400., 1.)*u.day,
@@ -187,7 +207,7 @@ class Arnett:
             With columns ``t`` (time), ``phi``, ``xi_raw``, ``fni``, ``fco``
             (dimensionless energy, ionization front radius, fraction of 56Ni,
             fraction of 56Co), ``xi`` (negative values removed), and
-            ``r``, ``l``, ``teff`` (radius, luminosity, and effective temperature).
+            ``r``, ``l``, ``teff`` (radius, luminosity, and effective temp.).
         """
 
         self._time_unit = times.unit
@@ -223,13 +243,15 @@ class Arnett:
                 ldiff = ldiff * (-xi * np.cos(np.pi*xi)
                                  + np.sin(np.pi*xi) / np.pi)
             elif recombination == "slow":
-                # Rescale to normal temperature distribution but at smaller radius.
+                # Rescale to normal temperature distribution
+                # but at smaller radius.
                 ldiff = ldiff * xi
 
             ldiff = np.maximum(ldiff, lmin)
 
         result['l'] = ldiff
-        result['teff'] = ((result['l'] / (4*np.pi*r**2) / const.sigma_sb)**(1/4)).to(u.K)
+        result['teff'] = ((result['l'] / (4*np.pi*r**2)
+                           / const.sigma_sb)**(1/4)).to(u.K)
         return result
 
     def heating(self, t, fr, fni, fco):
@@ -279,7 +301,8 @@ class Arnett:
 
         if getattr(self, 'debug', False) and abs(t-100*u.day) < 5*u.day:
             # Sanity check of luminosities: lmin2 should equal lmin.
-            lmin2 = 4*np.pi*(self.r0*fr*xi)**2 * const.sigma_sb * (2.*self.tion**4)
+            lmin2 = (4*np.pi*(self.r0*fr*xi)**2
+                     * const.sigma_sb * (2.*self.tion**4))
             ldiff = self.eth0 * phi / self.td0 * xi2dpsidxi
             ladv = -3*xi**2 * xi_dot * pi2by3psi*xi * self.eth0 * phi / fr
             lion = -3. * xi**2 * xi_dot * self.feion0 * self.eth0
@@ -289,9 +312,9 @@ class Arnett:
             lheat = (heating / fr) * self.eth0
             fmt = "{0}={1:10.4e}"
             vals = locals().copy()
-            print(f"{t=:5.1f}, {phi=:5.3f}, {xi=:5.3f}, "
-                  + ', '.join([fmt.format(x, vals[x].to_value(u.erg/u.s))
-                               for x in ('ldiff', 'ladv', 'lion', 'lmin', 'lheat')]))
+            print(f"{t=:5.1f}, {phi=:5.3f}, {xi=:5.3f}, " + ', '.join([
+                fmt.format(x, vals[x].to_value(u.erg/u.s))
+                for x in ('ldiff', 'ladv', 'lion', 'lmin', 'lheat')]))
             print(f"{t=:5.1f}, {phi=:5.3f}, {xi=:5.3f}, "
                   f"phi_dot={phi_dot.to(1/u.day):10.4g}, "
                   f"xi_dot={xi_dot.to(1/u.day):10.4g}, "
@@ -319,10 +342,13 @@ class Arnett:
             # Subtract cooling.
             phi_dot -= phi/xi**2/self.td0 * fr
             # Arnett book, eq. 13.40
-            # 3xᵢ²dxᵢ/dt = [ϕ/τ₀ - (π²c/3R₀)(Tᵢ⁴/2T₀⁴)(R/R₀)⁴] / [MQᵢ/E₀ + ϕ(R₀/R)]
-            # I defined tᵢ₀ = E₀ / Lᵢ₀ = (4/π)R₀³aT₀⁴ / 4πR₀²(ac/4)2Tᵢ⁴ = (4R₀/π²c)(T₀⁴/2Tᵢ⁴)
-            # I assume there are typos (3 instead of 4, 2 in front of T₀ instead of Tᵢ)
-            # in Arnett's 13.40.
+            # 3xᵢ²dxᵢ/dt = [ϕ/τ₀ - (π²c/3R₀)(Tᵢ⁴/2T₀⁴)(R/R₀)⁴]
+            #              / [MQᵢ/E₀ + ϕ(R₀/R)]
+            # I defined
+            # tᵢ₀ = E₀ / Lᵢ₀
+            #     = (4/π)R₀³aT₀⁴ / 4πR₀²(ac/4)2Tᵢ⁴ = (4R₀/π²c)(T₀⁴/2Tᵢ⁴)
+            # I assume there are typos in Arnett's 13.40
+            # (3 instead of 4, 2 in front of T₀ instead of Tᵢ)
             # Derivation for me:
             # Lmin = Lrec+Ladv+Ldiff = 4πRᵢ²σ2Tᵢ⁴ = xᵢ²(R/R₀)² 4πR₀²σ2Tᵢ⁴
             #      = xᵢ²(R/R₀)²(Lᵢ/E₀)E₀
@@ -341,22 +367,31 @@ class Arnett:
             # With far-advanced recombination radius, really we're just
             # matching the input from radioactive heating with the luminosity,
             # so we need heating*eth0/th0=xi**2*fr**2*eth0/ti0
-            # hence, dln h = 2 dln xi + 2d ln fr -> dln xi = 0.5* dln h -vsc/r0/fr
+            # hence, dln h = 2 dln xi + 2d ln fr
+            #    -> dln xi = 0.5* dln h -vsc/r0/fr
             heating = phi_dot * self.th0 / fr
-            xi_dot = xi*(0.5*(fni_dot+(self.nuclear.egco+self.nuclear.epco)/self.nuclear.egni*fco_dot)/heating
+            xi_dot = xi*(0.5*(fni_dot
+                              + ((self.nuclear.egco+self.nuclear.epco)
+                                 / self.nuclear.egni*fco_dot)/heating)
                          - self.vsc / (self.r0+self.vsc*t))
             # Part below unclear whether this is correct.
             # this implies Ldiff=Lmin-Ladv-Lrec=heating-Ladv-Lrec
-            #    phi_dot = (heating/xi**3/self.th0-(xi*fr)**2/xi**3/self.ti0-3*xi_dot/xi*(self.feion0/phi+1/fr))*fr;
-            #    phi_dot = (heating/xi**3/self.th0-(xi*fr)**2/xi**3/self.ti0)*fr
-            # print(f"heat={heating/xi**3/self.th0}, min={(xi*fr)**2/xi**3/self.ti0,"
-            #       f"rec={-3*xi_dot/xi*self.feion0/phi}, adv={-3*xi_dot/xi/fr})
+            #    phi_dot = (heating/xi**3/self.th0
+            #               - (xi*fr)**2/xi**3/self.ti0
+            #               - 3*xi_dot/xi*(self.feion0/phi+1/fr))*fr
+            #    phi_dot = (heating/xi**3/self.th0
+            #               - (xi*fr)**2/xi**3/self.ti0)*fr
+            # print(f"heat={heating/xi**3/self.th0}, "
+            #       f"min={(xi*fr)**2/xi**3/self.ti0, "
+            #       f"rec={-3*xi_dot/xi*self.feion0/phi}, "
+            #       f"adv={-3*xi_dot/xi/fr}")
             # Since heating now equals cooling, no change in phi.
             phi_dot = 0./u.day
 
         if getattr(self, 'debug', False) and abs(t-100*u.day) < 5*u.day:
             # Sanity check of luminosities: lmin2 should equal lmin.
-            lmin2 = 4*np.pi*(self.r0*fr*xi)**2 * const.sigma_sb * (2.*self.tion**4)
+            lmin2 = (4*np.pi*(self.r0*fr*xi)**2
+                     * const.sigma_sb * (2.*self.tion**4))
             ldiff = self.eth0 * phi / self.td0 * xi
             ladv = -3. * xi**2 * xi_dot * self.eth0 * phi / fr
             lion = -3. * xi**2 * xi_dot * self.feion0 * self.eth0
@@ -366,9 +401,9 @@ class Arnett:
             lheat = (heating / fr) * self.eth0
             fmt = "{0}={1:10.4e}"
             vals = locals().copy()
-            print(f"{t=:5.1f}, {phi=:5.3f}, {xi=:5.3f}, "
-                  + ', '.join([fmt.format(x, vals[x].to_value(u.erg/u.s))
-                               for x in ('ldiff', 'ladv', 'lion', 'lmin', 'lheat')]))
+            print(f"{t=:5.1f}, {phi=:5.3f}, {xi=:5.3f}, " + ', '.join([
+                fmt.format(x, vals[x].to_value(u.erg/u.s))
+                for x in ('ldiff', 'ladv', 'lion', 'lmin', 'lheat')]))
             print(f"{t=:5.1f}, {phi=:5.3f}, {xi=:5.3f}, "
                   f"phi_dot={phi_dot.to(1/u.day):10.4g}, "
                   f"xi_dot={xi_dot.to(1/u.day):10.4g}, "

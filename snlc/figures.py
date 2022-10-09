@@ -14,7 +14,7 @@ SN1987A = dict(
     mni=0.075*u.Msun,
     tion=4500*u.K,
     qion=0.7*13.6*u.eV/const.m_p
-    )
+)
 
 
 SN2011fe = dict(  # From Arnett, Fryer & Matheson, 2017, ApJ 846:33
@@ -25,7 +25,7 @@ SN2011fe = dict(  # From Arnett, Fryer & Matheson, 2017, ApJ 846:33
     esn=1.2e51*u.erg,
     vsc=9.28e8*u.cm/u.s,  # Override default calculation from esn.
     nuclear=nuclear_afm17,
-    )
+)
 
 
 def comparison(recombination='fast'):
@@ -57,8 +57,9 @@ def exploration(recombination='fast'):
         plt.subplot(2, 2, j+1)
         plt.title(f"{item} ({values.unit.to_string('latex')})")
         for val in values:
-            model = Arnett(**(SN1987A | {item: val}))(t, recombination=recombination)
-            plt.plot(t, model['l'], label=f"{val.value:<.2g}")
+            model = Arnett(**(SN1987A | {item: val}))
+            lc = model(t, recombination=recombination)
+            plt.plot(t, lc['l'], label=f"{val.value:<.2g}")
         plt.yscale('log')
         plt.xlim(0, 350)
         plt.ylim(1e40, 2e43)
