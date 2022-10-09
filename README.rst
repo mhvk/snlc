@@ -5,8 +5,8 @@ Semi-analytic SN lightcurves
     :target: http://www.astropy.org
     :alt: Powered by Astropy
 
-.. image:: https://github.com/mhvk/baseband/workflows/CI/badge.svg
-    :target: https://github.com/mhvk/baseband/actions
+.. image:: https://github.com/mhvk/snlc/workflows/CI/badge.svg
+    :target: https://github.com/mhvk/snlc/actions
     :alt: Test Status
 
 ``snlc`` calculates semi-analytic supernova lightcurves using Arnett's
@@ -33,7 +33,7 @@ developer documentation <http://docs.astropy.org/en/stable/index.html#developer-
 License
 -------
 
-Baseband is licensed under the GNU General Public License v3.0 - see the
+``snlc`` is licensed under the GNU General Public License v3.0 - see the
 ``LICENSE`` file.
 
 .. _@mhvk: https://github.com/mhvk
