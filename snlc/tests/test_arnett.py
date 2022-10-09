@@ -31,7 +31,7 @@ class TestArnett:
 
 class TestAFM17:
     def setup_class(self):
-        self.sn = Arnett(**SN2011fe, nuclear=nuclear_afm17)
+        self.sn = Arnett(**SN2011fe)
         self.t = np.linspace(0, 40, 401) << u.day
 
     def test_table2(self):
