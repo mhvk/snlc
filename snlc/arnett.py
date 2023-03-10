@@ -227,7 +227,8 @@ class Arnett:
                         y0=list(start.values()),
                         t_eval=times.value)
         # TODO: check no errors occurred!
-        result = QTable([times, *sol.y], names=['t']+list(start.keys()))
+        result = QTable([sol.t << times.unit, *sol.y],
+                        names=['t']+list(start.keys()))
         # --> calculate physical properties.
         phi = result['phi']
         xi = result['xi'] = (1 if recombination is None
